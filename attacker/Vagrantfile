@@ -1,0 +1,87 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Nameserver configuration file.
+NS_CONF = 'named.conf.options'
+
+# Fake zone database.
+FAKE_ZONE_DB = 'db.fake'
+FAKE_ZONE_CONF = 'named.conf.fake-zone'
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/bionic64"
+  # Guest hostname.
+  config.vm.hostname = "mooncake"
+  config.vm.define "mooncake"
+
+  # Although the following is _not recommended_, it helps to avoid “surprises.”
+  config.vm.box_check_update = false
+
+  # Private network for VMs to interact with one another.
+  config.vm.network "private_network", ip: "192.168.10.20", mask: "255.255.255.0",
+    virtualbox__intnet: "nat-int-network"
+
+  # Host-only network.
+  config.vm.network "private_network", ip: "192.168.56.120", mask: "255.255.255.0", virtualbox__intnet: true
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  #
+  # (NOTE: You may use this option to simplify your development environment.)
+  #
+  # config.vm.synced_folder "../data", "/vagrant_data"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "mooncake"
+    # Display the VirtualBox GUI when booting the machine
+    vb.gui = false
+    
+    # Contrain the VM memory.
+    vb.memory = "1024"
+
+    vb.customize ['modifyvm', :id, '--graphicscontroller', 'vmsvga']
+    vb.customize ['modifyvm', :id, '--audio', 'none']
+  end
+
+  config.vm.provision "bootstrap", type: "shell", inline: <<-SHELL
+    export DEBIAN_FRONTEND=noninteractive
+    usermod -aG root,sudo vagrant
+    apt-get update
+    apt-get -y dist-upgrade
+    apt-get autoremove
+  SHELL
+
+  config.vm.provision "tools-infra", type: "shell", inline: <<-SHELL
+    export DEBIAN_FRONTEND=noninteractive
+    groupadd -r wireshark
+    usermod -aG wireshark vagrant
+    apt-get -y install tshark python3-pip
+    setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
+  SHELL
+
+  config.vm.provision "ns-infra", type: "shell", inline: <<-SHELL
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y bind9 bind9utils
+  SHELL
+
+  config.vm.provision "ns-conf", type: "file", source: "./#{NS_CONF}", destination: "/tmp/#{NS_CONF}"
+
+  config.vm.provision "ns-run", type: "shell", inline: <<-SHELL
+    mv -v "/tmp/#{NS_CONF}" "/etc/bind/#{NS_CONF}"
+    named-checkconf && service bind9 reload
+  SHELL
+
+  config.vm.provision "zone-db", type: "file", source: "./#{FAKE_ZONE_DB}", destination: "/tmp/#{FAKE_ZONE_DB}"
+
+  config.vm.provision "zone-conf", type: "file", source: "./#{FAKE_ZONE_CONF}", destination: "/tmp/#{FAKE_ZONE_CONF}"
+
+  config.vm.provision "add-fake-zone", type: "shell", inline: <<-SHELL
+    mv -v "/tmp/#{FAKE_ZONE_DB}" /etc/bind/
+    mv -v "/tmp/#{FAKE_ZONE_CONF}" /etc/bind/
+    echo 'include "/etc/bind/'#{FAKE_ZONE_CONF}'";' >> /etc/bind/named.conf
+    named-checkconf && service bind9 reload
+  SHELL
+
+end

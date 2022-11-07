@@ -1,0 +1,66 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Nameserver configuration file.
+NS_CONF = './named.conf.options'
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/bionic64"
+  # Guest hostname.
+  config.vm.hostname = "quackns"
+  config.vm.define "quackns"
+
+  # Although the following is _not recommended_, it helps to avoid “surprises.”
+  config.vm.box_check_update = false
+
+  # Private network for VMs to interact with one another.
+  config.vm.network "private_network", ip: "192.168.10.30", mask: "255.255.255.0", virtualbox__intnet: "nat-int-network"
+
+  # Host-only network.
+  config.vm.network "private_network", ip: "192.168.56.130", mask: "255.255.255.0", virtualbox__intnet: true
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  #
+  # (NOTE: You may use this option to simplify your development environment.)
+  #
+  # config.vm.synced_folder "../data", "/vagrant_data"
+
+  config.vm.provider "virtualbox" do |vb|
+    # Name of the virtualBox image.
+    vb.name = "quackns"
+
+    # We do not need a GUI.
+    vb.gui = false
+    
+    # Contrain the VM memory.
+    vb.memory = "768"
+
+    vb.customize ['modifyvm', :id, '--graphicscontroller', 'vmsvga']
+    vb.customize ['modifyvm', :id, '--vram', 16]
+    vb.customize ['modifyvm', :id, '--audio', 'none']
+  end
+
+  config.vm.provision "bootstrap", type: "shell", inline: <<-SHELL
+	  export DEBIAN_FRONTEND=noninteractive
+    usermod -aG root,sudo vagrant
+    apt-get update
+    apt-get -y dist-upgrade
+    apt-get -y autoremove
+  SHELL
+
+  config.vm.provision "ns-infra", type: "shell", inline: <<-SHELL
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y bind9 bind9utils
+  SHELL
+
+  config.vm.provision "ns-conf", type: "file", source: NS_CONF, destination: "/tmp/#{NS_CONF}"
+
+  config.vm.provision "ns-run", type: "shell", inline: <<-SHELL
+    mv -v "/tmp/#{NS_CONF}" "/etc/bind/#{NS_CONF}"
+    named-checkconf && service bind9 reload
+  SHELL
+
+end

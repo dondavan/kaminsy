@@ -1,0 +1,63 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/bionic64"
+  # Guest hostname.
+  config.vm.hostname = "tribore"
+  config.vm.define "tribore"
+
+  # Although the following is _not recommended_, it helps to avoid “surprises.”
+  config.vm.box_check_update = false
+
+  # Private network for VMs to interact with one another.
+  config.vm.network "private_network", ip: "192.168.10.10", mask: "255.255.255.0",
+    virtualbox__intnet: "nat-int-network"
+
+  # Host-only network.
+  config.vm.network "private_network", ip: "192.168.56.110", mask: "255.255.255.0", virtualbox__intnet: true
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  #
+  # (NOTE: You may use this option to simplify your development environment.)
+  #
+  # config.vm.synced_folder "./res", "/vagrant/res"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "tribore"
+    # Display the VirtualBox GUI when booting the machine
+    vb.gui = false
+    
+    # Contrain the VM memory.
+    vb.memory = "768"
+
+    vb.customize ['modifyvm', :id, '--graphicscontroller', 'vmsvga']
+    vb.customize ['modifyvm', :id, '--vram', 16]
+    vb.customize ['modifyvm', :id, '--audio', 'none']
+  end
+
+  config.vm.provision "bootstrap", type: "shell", inline: <<-SHELL
+    export DEBIAN_FRONTEND=noninteractive
+    usermod -aG root,sudo vagrant
+    apt-get update
+    apt-get -y dist-upgrade
+    apt-get autoremove
+  SHELL
+
+  config.vm.provision "tools-infra", type: "shell", inline: <<-SHELL
+    export DEBIAN_FRONTEND=noninteractive
+    groupadd -r wireshark
+    usermod -aG wireshark vagrant
+    apt-get -y install tshark python3-pip
+    setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
+  SHELL
+
+  config.vm.provision "py-infra", type: "shell", inline: <<-SHELL
+    export DEBIAN_FRONTEND=noninteractive
+    pip3 install dnslib ipython
+  SHELL
+
+end
